@@ -1,0 +1,12 @@
+/build/
+/build-*/
+/stage/
+/packaging/arch/pkg/
+/packaging/arch/src/
+/packaging/arch/*.pkg.tar.*
+/packaging/arch/*.tar.gz
+*.db
+*.db-*
+*.partial
+*.restoring
+.SRCINFO

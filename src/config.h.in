@@ -1,0 +1,3 @@
+#pragma once
+#define PLAINWEIGHT_VERSION "@PROJECT_VERSION@"
+#define PLAINWEIGHT_APP_ID "io.github.pingskills.plainweight"

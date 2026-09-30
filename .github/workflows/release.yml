@@ -1,0 +1,31 @@
+name: Release
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Dependencies
+        run: pacman -Syu --noconfirm --needed base-devel git github-cli cmake ninja qt6-base qt6-declarative
+      - uses: actions/checkout@v4
+      - name: Check tag and version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          grep -q "project(plainweight VERSION $version " CMakeLists.txt
+          grep -q "## \[$version\]" CHANGELOG.md
+          grep -q "release version=\"$version\"" packaging/io.github.pingskills.plainweight.metainfo.xml
+      - name: Build and test
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          gh release create "$GITHUB_REF_NAME" --title "PlainWeight ${GITHUB_REF_NAME#v}" --generate-notes --verify-tag

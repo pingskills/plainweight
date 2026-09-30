@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.pingskills.plainweight</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>PlainWeight</name>
+  <summary>A small native weight log for Linux</summary>
+  <developer id="io.github.pingskills"><name>pingskills</name></developer>
+  <description><p>Record your weight, see how it changes, and keep your data locally. Includes a simple graph, statistics, backup and CSV import and export.</p></description>
+  <launchable type="desktop-id">io.github.pingskills.plainweight.desktop</launchable>
+  <url type="homepage">https://github.com/pingskills/plainweight</url>
+  <url type="bugtracker">https://github.com/pingskills/plainweight/issues</url>
+  <categories><category>Utility</category></categories>
+  <keywords><keyword>weight</keyword><keyword>measurements</keyword></keywords>
+  <provides><binary>plainweight</binary></provides>
+  <content_rating type="oars-1.1"/>
+  <requires><display_length compare="ge">620</display_length></requires>
+  <supports><control>keyboard</control><control>pointing</control></supports>
+  <releases><release version="0.1.0" date="2026-09-30"><description><p>Initial release.</p></description></release></releases>
+</component>

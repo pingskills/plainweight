@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=PlainWeight
+GenericName=Weight Log
+Comment=A small native weight log for Linux
+Exec=plainweight
+Icon=io.github.pingskills.plainweight
+Terminal=false
+Categories=Utility;
+Keywords=weight;measurements;health;log;
+StartupNotify=true
+StartupWMClass=io.github.pingskills.plainweight
