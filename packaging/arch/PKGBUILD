@@ -10,7 +10,7 @@ depends=('glibc' 'hicolor-icon-theme' 'libgcc' 'libstdc++' 'qt6-base' 'qt6-decla
 makedepends=('cmake' 'ninja')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
 # Replace SKIP with the actual archive checksum after the v0.1.0 GitHub tag exists.
-sha256sums=('SKIP')
+sha256sums=('cd39212108d58a4e2f49f8e6e423d27cd2aad1133fabe17da28e304b25609813')
 
 build() {
   cmake -B build -S "$pkgname-$pkgver" -G Ninja -DCMAKE_BUILD_TYPE=None -DCMAKE_INSTALL_PREFIX=/usr -DPLAINWEIGHT_BUILD_TESTS=ON
