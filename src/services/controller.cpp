@@ -1,4 +1,5 @@
 #include "services/controller.h"
+#include "config.h"
 #include <QFileInfo>
 #include <algorithm>
 
@@ -32,6 +33,12 @@ QDate HistoryModel::dateAt(int row) const {
 }
 Controller::Controller(const QString &path, QObject *parent)
     : QObject(parent), m_path(path) {}
+QString Controller::version() const {
+  return QStringLiteral(PLAINWEIGHT_VERSION);
+}
+void Controller::setFixedToday(const QDate &date) {
+  m_store.setFixedToday(date);
+}
 bool Controller::fail(const QString &reason) {
   m_error = reason;
   emit changed();
@@ -109,6 +116,7 @@ QVariantList Controller::graph() const {
   return list;
 }
 bool Controller::exists(const QString &date) const {
+  // Compared as ISO text, so no "today" check applies here.
   for (const auto &e : m_entries)
     if (e.date.toString(Qt::ISODate) == date)
       return true;
@@ -124,7 +132,8 @@ bool Controller::save(const QString &date, const QString &weight, bool update) {
   QDate d;
   int g;
   QString error;
-  if (!parseDate(date, &d, &error) || !parseWeight(weight, &g, &error))
+  if (!parseDate(date, &d, &error, m_store.today()) ||
+      !parseWeight(weight, &g, &error))
     return fail(error);
   if (!m_store.save(d, g, update))
     return fail(m_store.error());
@@ -136,7 +145,8 @@ bool Controller::edit(const QString &oldDate, const QString &date,
   QDate old, d;
   int g;
   QString error;
-  if (!parseDate(oldDate, &old, &error) || !parseDate(date, &d, &error) ||
+  if (!parseDate(oldDate, &old, &error, m_store.today()) ||
+      !parseDate(date, &d, &error, m_store.today()) ||
       !parseWeight(weight, &g, &error))
     return fail(error);
   if (!m_store.edit(old, d, g))
@@ -147,7 +157,7 @@ bool Controller::edit(const QString &oldDate, const QString &date,
 bool Controller::remove(const QString &date) {
   QDate d;
   QString error;
-  if (!parseDate(date, &d, &error))
+  if (!parseDate(date, &d, &error, m_store.today()))
     return fail(error);
   if (!m_store.remove(d))
     return fail(m_store.error());

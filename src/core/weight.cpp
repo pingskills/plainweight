@@ -6,7 +6,7 @@
 namespace pw {
 bool parseWeight(const QString &text, int *grams, QString *error) {
   static const QRegularExpression pattern(
-      QStringLiteral(R"(^\s*([0-9]{1,3})(?:\.([0-9]{1,3}))?\s*$)"));
+      QStringLiteral(R"(^\s*([0-9]{1,3})(?:[.,]([0-9]{1,3}))?\s*$)"));
   auto m = pattern.match(text);
   if (!m.hasMatch()) {
     if (error)
@@ -26,12 +26,13 @@ bool parseWeight(const QString &text, int *grams, QString *error) {
     *grams = value;
   return true;
 }
-bool parseDate(const QString &text, QDate *date, QString *error) {
+bool parseDate(const QString &text, QDate *date, QString *error,
+               const QDate &today) {
   static const QRegularExpression pattern(
       QStringLiteral(R"(^[0-9]{4}-[0-9]{2}-[0-9]{2}$)"));
+  const QDate latest = today.isValid() ? today : QDate::currentDate();
   QDate d = QDate::fromString(text, Qt::ISODate);
-  if (!pattern.match(text).hasMatch() || !d.isValid() ||
-      d > QDate::currentDate()) {
+  if (!pattern.match(text).hasMatch() || !d.isValid() || d > latest) {
     if (error)
       *error = QStringLiteral(
           "Enter a valid date no later than today (YYYY-MM-DD).");
@@ -92,13 +93,53 @@ QString csvExport(const QList<Entry> &entries) {
            QString::number(e.grams / 1000.0, 'f', 3) + QLatin1Char('\n');
   return out;
 }
-bool csvParse(const QString &text, QList<Entry> *entries, QString *error) {
+bool csvSplit(const QString &line, QStringList *fields) {
+  QStringList out;
+  QString field;
+  bool quoted = false, wasQuoted = false;
+  for (qsizetype i = 0; i < line.size(); ++i) {
+    const QChar c = line.at(i);
+    if (quoted) {
+      if (c == QLatin1Char('"')) {
+        if (i + 1 < line.size() && line.at(i + 1) == QLatin1Char('"')) {
+          field += c;
+          ++i;
+        } else {
+          quoted = false;
+        }
+      } else {
+        field += c;
+      }
+    } else if (c == QLatin1Char('"')) {
+      if (!field.isEmpty() || wasQuoted)
+        return false;
+      quoted = wasQuoted = true;
+    } else if (c == QLatin1Char(',')) {
+      out << field;
+      field.clear();
+      wasQuoted = false;
+    } else {
+      if (wasQuoted)
+        return false;
+      field += c;
+    }
+  }
+  if (quoted)
+    return false;
+  out << field;
+  if (fields)
+    *fields = out;
+  return true;
+}
+bool csvParse(const QString &text, QList<Entry> *entries, QString *error,
+              const QDate &today) {
   QString input = text;
   if (input.startsWith(QChar(0xfeff)))
     input.remove(0, 1);
   const QStringList lines = input.split(QLatin1Char('\n'));
-  if (lines.isEmpty() ||
-      lines.first().trimmed() != QLatin1String("date,weight_kg")) {
+  QStringList header;
+  if (lines.isEmpty() || !csvSplit(lines.first().trimmed(), &header) ||
+      header != QStringList{QStringLiteral("date"), QStringLiteral("weight_kg")}) {
     if (error)
       *error = QStringLiteral("Expected header: date,weight_kg");
     return false;
@@ -111,10 +152,11 @@ bool csvParse(const QString &text, QList<Entry> *entries, QString *error) {
       line.chop(1);
     if (line.isEmpty())
       continue;
-    const QStringList fields = line.split(QLatin1Char(','));
+    QStringList fields;
     QDate date;
     int grams;
-    if (fields.size() != 2 || !parseDate(fields.value(0), &date) ||
+    if (!csvSplit(line, &fields) || fields.size() != 2 ||
+        !parseDate(fields.value(0).trimmed(), &date, nullptr, today) ||
         !parseWeight(fields.value(1), &grams) || seen.contains(date)) {
       if (error)
         *error = QStringLiteral("Invalid or duplicate record on line %1.")

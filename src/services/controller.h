@@ -2,6 +2,7 @@
 #include "database/store.h"
 #include <QAbstractListModel>
 #include <QObject>
+#include <QUrl>
 #include <QVariantList>
 
 namespace pw {
@@ -39,6 +40,7 @@ class Controller : public QObject {
   Q_PROPERTY(QString highest READ highest NOTIFY changed)
   Q_PROPERTY(QString target READ target NOTIFY changed)
   Q_PROPERTY(QString error READ error NOTIFY changed)
+  Q_PROPERTY(QString version READ version CONSTANT)
 public:
   explicit Controller(const QString &path, QObject *parent = nullptr);
   bool initialize();
@@ -54,8 +56,15 @@ public:
   QString highest() const;
   QString target() const;
   QString error() const { return m_error; }
+  QString version() const;
+  // Tests pin "today" so future-date checks and defaults are deterministic.
+  void setFixedToday(const QDate &date);
   Q_INVOKABLE QString today() const {
-    return QDate::currentDate().toString(Qt::ISODate);
+    return m_store.today().toString(Qt::ISODate);
+  }
+  // File dialog URL -> local path (QUrl::toLocalFile handles escaping).
+  Q_INVOKABLE QString localPath(const QUrl &url) const {
+    return url.isLocalFile() ? url.toLocalFile() : url.toString();
   }
   Q_INVOKABLE bool exists(const QString &date) const;
   Q_INVOKABLE QString weightOn(const QString &date) const;

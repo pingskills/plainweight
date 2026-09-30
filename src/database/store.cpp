@@ -22,6 +22,25 @@ bool Store::fail(const QString &message) {
   m_error = message;
   return false;
 }
+bool Store::failOpen(OpenError kind, const QString &message) {
+  m_openError = kind;
+  return fail(message);
+}
+const QList<Migration> &migrations() {
+  static const QList<Migration> list = {
+      {1,
+       {QStringLiteral(
+            "CREATE TABLE measurements (entry_date TEXT PRIMARY KEY NOT NULL "
+            "CHECK(entry_date GLOB "
+            "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'), weight_grams "
+            "INTEGER NOT NULL CHECK(weight_grams BETWEEN 1000 AND 500000), "
+            "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
+        QStringLiteral("CREATE TABLE settings (key TEXT PRIMARY KEY NOT NULL, "
+                       "value TEXT NOT NULL)"),
+        QStringLiteral("PRAGMA application_id = %1").arg(Store::ApplicationId)}},
+  };
+  return list;
+}
 void Store::close() {
   if (!m_db.isValid())
     return;
@@ -36,16 +55,24 @@ bool Store::run(const QString &sql) {
   return true;
 }
 bool Store::open(const QString &path, bool readOnly) {
+  return open(path, readOnly, migrations());
+}
+bool Store::open(const QString &path, bool readOnly,
+                 const QList<Migration> &steps) {
   close();
   m_error.clear();
+  m_openError = OpenError::None;
+  const int latest = steps.isEmpty() ? 0 : steps.last().version;
   m_path = path;
   if (readOnly && !QFileInfo::exists(path))
-    return fail(QStringLiteral("No measurements recorded."));
+    return failOpen(OpenError::Missing,
+                    QStringLiteral("No measurements recorded."));
   const bool newDb = !QFileInfo::exists(path);
   const QString dataDir = QFileInfo(path).absolutePath();
   const bool newDir = !QFileInfo::exists(dataDir);
   if (!readOnly && !QDir().mkpath(dataDir))
-    return fail(QStringLiteral("Cannot create data directory."));
+    return failOpen(OpenError::Io,
+                    QStringLiteral("Cannot create data directory."));
   if (!readOnly && newDir)
     QFile::setPermissions(dataDir, QFileDevice::ReadOwner |
                                        QFileDevice::WriteOwner |
@@ -57,33 +84,40 @@ bool Store::open(const QString &path, bool readOnly) {
           ? QStringLiteral("QSQLITE_OPEN_READONLY;QSQLITE_BUSY_TIMEOUT=5000")
           : QStringLiteral("QSQLITE_BUSY_TIMEOUT=5000"));
   if (!m_db.open())
-    return fail(m_db.lastError().text());
+    return failOpen(OpenError::Io, m_db.lastError().text());
   QSqlQuery q(m_db);
   if (!q.exec(QStringLiteral("PRAGMA application_id")) || !q.next())
-    return fail(QStringLiteral("Not a readable SQLite database."));
+    return failOpen(OpenError::Unreadable,
+                    QStringLiteral("Not a readable SQLite database."));
   int appId = q.value(0).toInt();
   if (!q.exec(QStringLiteral("PRAGMA user_version")) || !q.next())
-    return fail(QStringLiteral("Cannot read schema version."));
+    return failOpen(OpenError::Unreadable,
+                    QStringLiteral("Cannot read schema version."));
   int version = q.value(0).toInt();
   if (!q.exec(QStringLiteral(
           "SELECT count(*) FROM sqlite_master WHERE type='table'")) ||
       !q.next())
-    return fail(QStringLiteral("Cannot inspect database."));
+    return failOpen(OpenError::Unreadable,
+                    QStringLiteral("Cannot inspect database."));
   int tables = q.value(0).toInt();
   q.finish();
   if ((appId != 0 && appId != ApplicationId) || (appId == 0 && tables != 0))
-    return fail(QStringLiteral("Not a PlainWeight database."));
-  if (version > SchemaVersion)
-    return fail(
+    return failOpen(OpenError::Foreign,
+                    QStringLiteral("Not a PlainWeight database."));
+  if (version > latest)
+    return failOpen(
+        OpenError::Newer,
         QStringLiteral("Database was made by a newer PlainWeight version."));
   if (readOnly)
     return version == 0
-               ? fail(QStringLiteral("Database has no measurements schema."))
-               : validateSchema();
-  if (!migrate())
-    return false;
+               ? failOpen(OpenError::Damaged,
+                          QStringLiteral("Database has no measurements schema."))
+               : (validateSchema() ||
+                  failOpen(OpenError::Damaged, m_error));
+  if (!migrate(steps))
+    return failOpen(OpenError::Damaged, m_error);
   if (!validateSchema())
-    return false;
+    return failOpen(OpenError::Damaged, m_error);
   if (newDb)
     QFile::setPermissions(path,
                           QFileDevice::ReadOwner | QFileDevice::WriteOwner);
@@ -99,36 +133,24 @@ bool Store::validateSchema() {
         "PlainWeight database schema is incomplete or damaged."));
   return true;
 }
-bool Store::migrate() {
+bool Store::migrate(const QList<Migration> &steps) {
   QSqlQuery q(m_db);
   if (!q.exec(QStringLiteral("PRAGMA user_version")) || !q.next())
     return fail(QStringLiteral("Cannot read schema version."));
   int version = q.value(0).toInt();
   q.finish();
-  // Append new numbered steps here. Each step and its version bump commit
-  // together.
-  const QList<QPair<int, QStringList>> migrations = {
-      {1,
-       {QStringLiteral(
-            "CREATE TABLE measurements (entry_date TEXT PRIMARY KEY NOT NULL "
-            "CHECK(entry_date GLOB "
-            "'[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'), weight_grams "
-            "INTEGER NOT NULL CHECK(weight_grams BETWEEN 1000 AND 500000), "
-            "created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"),
-        QStringLiteral("CREATE TABLE settings (key TEXT PRIMARY KEY NOT NULL, "
-                       "value TEXT NOT NULL)"),
-        QStringLiteral("PRAGMA application_id = %1").arg(ApplicationId)}}};
-  for (const auto &step : migrations) {
-    if (step.first <= version)
+  // Each step and its version bump commit together; see migrations().
+  for (const auto &step : steps) {
+    if (step.version <= version)
       continue;
     if (!m_db.transaction())
       return fail(m_db.lastError().text());
-    for (const auto &sql : step.second)
+    for (const auto &sql : step.statements)
       if (!run(sql)) {
         m_db.rollback();
         return false;
       }
-    if (!run(QStringLiteral("PRAGMA user_version = %1").arg(step.first))) {
+    if (!run(QStringLiteral("PRAGMA user_version = %1").arg(step.version))) {
       m_db.rollback();
       return false;
     }
@@ -136,7 +158,7 @@ bool Store::migrate() {
       m_db.rollback();
       return fail(m_db.lastError().text());
     }
-    version = step.first;
+    version = step.version;
   }
   return true;
 }
@@ -154,8 +176,7 @@ QList<Entry> Store::entries() const {
   return list;
 }
 bool Store::save(const QDate &date, int grams, bool update) {
-  if (!date.isValid() || date > QDate::currentDate() || grams < 1000 ||
-      grams > 500000)
+  if (!date.isValid() || date > today() || grams < 1000 || grams > 500000)
     return fail(QStringLiteral("Invalid date or weight."));
   QSqlQuery q(m_db);
   const QString now =
@@ -183,7 +204,7 @@ bool Store::save(const QDate &date, int grams, bool update) {
   return true;
 }
 bool Store::edit(const QDate &oldDate, const QDate &date, int grams) {
-  if (!oldDate.isValid() || !date.isValid() || date > QDate::currentDate() ||
+  if (!oldDate.isValid() || !date.isValid() || date > today() ||
       grams < 1000 || grams > 500000)
     return fail(QStringLiteral("Invalid date or weight."));
   if (oldDate != date) {
@@ -252,7 +273,8 @@ bool Store::importCsv(const QString &path, int *added, int *skipped) {
     return fail(f.errorString());
   QList<Entry> incoming;
   QString parseError;
-  if (!csvParse(QString::fromUtf8(f.readAll()), &incoming, &parseError))
+  if (!csvParse(QString::fromUtf8(f.readAll()), &incoming, &parseError,
+                today()))
     return fail(parseError);
   if (!m_db.transaction())
     return fail(m_db.lastError().text());

@@ -16,7 +16,7 @@ ApplicationWindow {
     property string statusText: ""
 
     function filePath(url) {
-        return decodeURIComponent(url.toString().replace(/^file:\/\//, ""));
+        return App.localPath(url);
     }
 
     function resetEntry() {
@@ -78,40 +78,6 @@ ApplicationWindow {
     palette.buttonText: Theme.text
     palette.highlight: Theme.accent
     Component.onCompleted: resetEntry()
-
-    Shortcut {
-        sequence: "Ctrl+N"
-        onActivated: window.resetEntry()
-    }
-
-    Shortcut {
-        sequence: "Ctrl+S"
-        onActivated: window.saveEntry()
-    }
-
-    Shortcut {
-        sequence: "Ctrl+E"
-        onActivated: window.selectedEdit()
-    }
-
-    Shortcut {
-        sequence: "Ctrl+B"
-        onActivated: backupFile.open()
-    }
-
-    Shortcut {
-        sequence: "Ctrl+Q"
-        onActivated: Qt.quit()
-    }
-
-    Shortcut {
-        sequence: "Delete"
-        onActivated: {
-            if (history.activeFocus) {
-                window.selectedDelete();
-            }
-        }
-    }
 
     FileDialog {
         id: backupFile
@@ -256,7 +222,7 @@ ApplicationWindow {
         width: 430
 
         contentItem: Label {
-            text: "PlainWeight 0.1.0\nLocal weight tracking for Linux\n\nData: " + App.dataPath()
+            text: qsTr("PlainWeight %1\nA small native weight log for Linux\n\nData: %2").arg(App.version).arg(App.dataPath())
             wrapMode: Text.Wrap
         }
 
@@ -273,34 +239,6 @@ ApplicationWindow {
 
             Item {
                 height: 3
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                Layout.leftMargin: 28
-                Layout.rightMargin: 28
-                spacing: 5
-
-                Label {
-                    text: qsTr("PlainWeight")
-                    color: Theme.text
-                    font.pointSize: Theme.fontSize * 1.8
-                    font.weight: Font.DemiBold
-                }
-
-                Label {
-                    text: qsTr("A clear view of your weight over time")
-                    color: Theme.muted
-                }
-
-            }
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.leftMargin: 28
-                Layout.rightMargin: 28
-                height: 1
-                color: Theme.border
             }
 
             ColumnLayout {
@@ -353,10 +291,30 @@ ApplicationWindow {
                     }
 
                     Button {
+                        id: saveButton
+
                         text: window.editing ? qsTr("Save changes") : qsTr("Save weight")
-                        highlighted: true
                         onClicked: window.saveEntry()
                         Accessible.name: text
+
+                        // The primary action: a solid accent button.
+                        contentItem: Label {
+                            text: saveButton.text
+                            color: Theme.onAccent
+                            font.weight: Font.DemiBold
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            implicitHeight: 32
+                            implicitWidth: 110
+                            radius: 3
+                            color: saveButton.down ? Qt.darker(Theme.accent, 1.15) : saveButton.hovered ? Qt.lighter(Theme.accent, 1.08) : Theme.accent
+                            border.width: saveButton.visualFocus ? 2 : 0
+                            border.color: Theme.text
+                        }
+
                     }
 
                     Button {
@@ -870,7 +828,7 @@ ApplicationWindow {
                 }
 
                 Label {
-                    visible: App.history.rowCount() === 0
+                    visible: history.count === 0
                     text: qsTr("No entries yet. Add your first weight above.")
                     color: Theme.muted
                 }
@@ -887,20 +845,25 @@ ApplicationWindow {
 
     menuBar: MenuBar {
         Menu {
-            title: qsTr("File")
+            title: qsTr("&File")
 
             Action {
-                text: qsTr("New entry\tCtrl+N")
+                text: qsTr("&New Entry")
+                shortcut: StandardKey.New
                 onTriggered: window.resetEntry()
             }
 
+            MenuSeparator {
+            }
+
             Action {
-                text: qsTr("Backup Data…\tCtrl+B")
+                text: qsTr("&Backup Data…")
+                shortcut: "Ctrl+B"
                 onTriggered: backupFile.open()
             }
 
             Action {
-                text: qsTr("Restore Data…")
+                text: qsTr("&Restore Data…")
                 onTriggered: restoreFile.open()
             }
 
@@ -908,12 +871,12 @@ ApplicationWindow {
             }
 
             Action {
-                text: qsTr("Export CSV…")
+                text: qsTr("&Export CSV…")
                 onTriggered: exportFile.open()
             }
 
             Action {
-                text: qsTr("Import CSV…")
+                text: qsTr("&Import CSV…")
                 onTriggered: importFile.open()
             }
 
@@ -921,27 +884,41 @@ ApplicationWindow {
             }
 
             Action {
-                text: qsTr("Quit\tCtrl+Q")
+                text: qsTr("&Quit")
+                shortcut: StandardKey.Quit
                 onTriggered: Qt.quit()
             }
 
         }
 
         Menu {
-            title: qsTr("Edit")
+            title: qsTr("&Edit")
 
             Action {
-                text: qsTr("Edit selected\tCtrl+E")
+                text: qsTr("&Save Weight")
+                shortcut: StandardKey.Save
+                onTriggered: window.saveEntry()
+            }
+
+            Action {
+                text: qsTr("&Edit Selected")
+                shortcut: "Ctrl+E"
                 onTriggered: window.selectedEdit()
             }
 
+            // Text fields keep the Delete key for editing; elsewhere it asks
+            // to delete the selected entry (with confirmation).
             Action {
-                text: qsTr("Delete selected")
+                text: qsTr("&Delete Selected…")
+                shortcut: StandardKey.Delete
                 onTriggered: window.selectedDelete()
             }
 
+            MenuSeparator {
+            }
+
             Action {
-                text: qsTr("Set target…")
+                text: qsTr("Set &Target…")
                 onTriggered: {
                     targetField.text = App.target;
                     targetDialog.open();
@@ -951,10 +928,10 @@ ApplicationWindow {
         }
 
         Menu {
-            title: qsTr("Help")
+            title: qsTr("&Help")
 
             Action {
-                text: qsTr("About")
+                text: qsTr("&About PlainWeight")
                 onTriggered: aboutDialog.open()
             }
 
